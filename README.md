@@ -8,7 +8,7 @@ A single [`prompt.md`](./prompt.md) you can hand to any LLM — Claude, ChatGPT,
 
 Upgrading Terraform is **forward-only** for the state file. Once a newer CLI writes the state, no older CLI can read it. Multiply that by every developer's laptop, every CI runner, every drift detector, every policy engine, and every consumer of `terraform show -json` — and a "small bump from 1.5 to 1.9" stops being small.
 
-This repo gives you one comprehensive prompt that asks an LLM to act as a senior Terraform engineer and walk your specific setup through a 16-step checklist before you change a single binary:
+This repo gives you one comprehensive prompt that asks an LLM to act as a senior Terraform engineer and triage your inputs, then walk your specific setup through a 16-step checklist before you change a single binary:
 
 - Version path reconnaissance (every intermediate minor counts)
 - Distribution choice — HashiCorp Terraform (BSL from v1.6) vs [OpenTofu](https://opentofu.org/) (MPL)
@@ -29,21 +29,23 @@ The output is a risk matrix, a 0–100 readiness score, a confidence score that 
 
 ### 1. Gather your inputs
 
-You will get a much better assessment if you give the model evidence rather than asking it to guess. Collect:
+You will get a much better assessment if you give the model evidence rather than asking it to guess. **You don't need all of it to start** — the inputs are tiered, and the prompt's *Step 0 — Triage Inputs* will ask you for any decision-critical gaps and let you say *"proceed with what you have"* for the rest (at a correspondingly capped confidence).
 
-| Input | How to get it |
-|---|---|
-| Current CLI version | `terraform version` |
-| Target CLI version | The release you want to move to |
-| `terraform` blocks | `grep -r "terraform {" --include="*.tf"` across root and modules |
-| Provider inventory | `terraform providers` and `.terraform.lock.hcl` |
-| Module inventory | Every `module "x" { source = … version = … }` block |
-| Backend config | The `backend "…" { }` block in your root config |
-| State summary | The `terraform_version`, `serial`, `lineage`, resource count, and workspace list inside the state file. The first ~30 lines of `terraform state pull` are usually enough. |
-| Lock file | The contents of `.terraform.lock.hcl` (small, safe to share if you redact any private mirror URLs) |
-| CI/CD | How Terraform is installed and pinned in your pipeline |
-| Workspaces | `terraform workspace list` |
-| Surrounding tooling | Terragrunt version, OPA/Sentinel policies, drift detectors, anything that parses plan/state JSON |
+| Tier | Input | How to get it |
+|---|---|---|
+| **Required** | Current CLI version | `terraform version` |
+| **Required** | Target CLI version | The release you want to move to |
+| **Required** | `terraform` blocks | `grep -r "terraform {" --include="*.tf"` across root and modules |
+| **Recommended** | Provider inventory | `terraform providers` and `.terraform.lock.hcl` |
+| **Recommended** | Module inventory | Every `module "x" { source = … version = … }` block |
+| **Recommended** | Backend config | The `backend "…" { }` block in your root config |
+| **Recommended** | State summary | The `terraform_version`, `serial`, `lineage`, resource count, and workspace list inside the state file. The first ~30 lines of `terraform state pull` are usually enough. **This is the single most decision-relevant input** — omitting it caps the report's confidence at ~70%. |
+| **Recommended** | Lock file | The contents of `.terraform.lock.hcl` (small, safe to share if you redact any private mirror URLs) |
+| **Optional** | CI/CD | How Terraform is installed and pinned in your pipeline |
+| **Optional** | Workspaces | `terraform workspace list` |
+| **Optional** | Surrounding tooling | Terragrunt version, OPA/Sentinel policies, drift detectors, anything that parses plan/state JSON |
+
+Anything you can't supply isn't a blocker — it becomes an `Unknown` item in the report and lowers the confidence score, which is exactly how the prompt is designed to behave.
 
 ### 2. Send it to your LLM
 
