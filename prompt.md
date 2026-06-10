@@ -27,18 +27,26 @@ Always consult the **specific upgrade guide for the target version** — every m
 
 ---
 
-## INPUTS THE USER MUST PROVIDE
+## INPUTS THE USER MAY PROVIDE
 
-If any of these are missing, **explicitly list what is missing in your final report** and downgrade confidence. Do not fabricate.
+Inputs follow this prompt as a clearly delimited block (e.g. under a `=== USER INPUTS ===` heading). **You do not need all of them to begin** — they are tiered by how much they affect the decision. Do not refuse to start because some are absent; instead follow **Step 0 — Triage Inputs** below: ask for the decision-critical gaps, treat the rest as optional, and cap your confidence accordingly (see the confidence-cap table under REQUIRED OUTPUTS § C). Never fabricate a missing value.
+
+### Required — without these you cannot assess at all
 
 1. **Current Terraform CLI version** (output of `terraform version`).
 2. **Target Terraform CLI version** (and target distribution — HashiCorp Terraform or OpenTofu).
 3. **All `terraform { … }` blocks** from the root and modules (especially `required_version` and `required_providers`).
+
+### Recommended — strongly affect the decision; ask for these if absent
+
 4. **Provider inventory** — name, source address, currently installed version (from `.terraform.lock.hcl` or `terraform providers`).
 5. **Module inventory** — for each `module` block: source, version, whether it is local, public registry, private registry, or git.
 6. **Backend configuration** — backend type and any configuration that may have changed across versions (e.g. `remote`, `s3`, `azurerm`, `gcs`, `http`, `kubernetes`, `consul`, `pg`, `cos`, `oss`).
-7. **State summary** — at minimum: state version (`terraform_version` field inside the state file), serial, lineage, number of resources, workspaces in use, and where state is stored. Full state contents are helpful but not required.
-8. **Lock file** (`.terraform.lock.hcl`) — present? committed to VCS? which platforms have `h1:`/`zh:` hashes?
+7. **State summary** — at minimum: state version (`terraform_version` field inside the state file), serial, lineage, number of resources, workspaces in use, and where state is stored. The **first ~30 lines of `terraform state pull`** are usually enough; full state contents are helpful but not required. *This is the single most decision-relevant input — without it your confidence is capped (see § C).*
+8. **Lock file** (`.terraform.lock.hcl`) — present? committed to VCS? which platforms have `h1:`/`zh:` hashes? (Small and safe to share; redact any private mirror URLs.)
+
+### Optional — improve accuracy; note their absence and proceed
+
 9. **CI/CD pipeline** — runner image / tool that installs Terraform (Atlantis, Terraform Cloud / HCP Terraform, Spacelift, env0, GitHub Actions `hashicorp/setup-terraform`, GitLab CI, Jenkins, Docker image tag, `tfenv`, `tenv`, asdf, …).
 10. **Workspace strategy** — single workspace, multiple CLI workspaces, multiple state files, Terraform Cloud / HCP Terraform workspaces.
 11. **Custom tooling** — anything that parses HCL, plan JSON, or state JSON (Terragrunt version, OPA / Conftest policies, Sentinel policies, `terraform-docs`, `tfsec`/`trivy`/`checkov`, drift detectors, custom wrappers).
@@ -46,9 +54,26 @@ If any of these are missing, **explicitly list what is missing in your final rep
 
 ---
 
-## WORKFLOW — 16 STEPS
+## WORKFLOW — 17 STEPS
 
 Work through these in order. Do not skip steps. If you lack inputs for a step, state that explicitly before moving on.
+
+### Step 0 — Triage Inputs (do this before any analysis)
+
+Before working through the analysis, scan what the user actually provided against the tiered INPUTS list above and decide what to ask for versus what to proceed without.
+
+- **If a *Required* input (1–3) is missing**, you cannot meaningfully assess. Ask for it before continuing — do not guess a source/target version or invent `required_version` constraints.
+- **If a *Recommended* input (4–8) is missing**, ask for it, but frame the ask as **optional and low-friction**, and offer the cheapest way to get it. In particular:
+  - State summary → *"If possible, paste the first ~30 lines of `terraform state pull` (the `terraform_version`, `serial`, `lineage`, and resource count). It's the single biggest factor in this assessment, but I can proceed without it at reduced confidence."*
+  - Lock file → *"If you can share `.terraform.lock.hcl` (redact private mirror URLs), I can verify provider versions and platform coverage."*
+- **If only *Optional* inputs (9–12) are missing**, do **not** block on them. Note their absence and proceed.
+
+Rules for this step:
+
+- Ask your clarifying questions **in a single batched list, up to ~5 questions**, then proceed with whatever the user gives you. Do not interrogate one question at a time.
+- The user is allowed to say *"proceed with what you have."* If they do, honour it: continue the analysis and let the missing inputs surface as `Unknown` findings with a correspondingly capped confidence (see § C).
+- Never let a missing *Optional* input stall the report.
+- Before finalising, **verify the target version is still the latest patch** of its minor line (check the Terraform releases page) — point releases land frequently and the user may have named a slightly stale patch.
 
 ### Step 1 — Version Path Reconnaissance
 
@@ -236,7 +261,19 @@ With explicit tiering:
 
 ### C) Confidence Score (%)
 
-How confident are you in the assessment itself? Confidence **must not exceed the evidence**. If the user did not supply a state summary, your confidence cannot be 95%. State explicitly which missing inputs would raise your confidence.
+How confident are you in the assessment itself? Confidence **must not exceed the evidence**. State explicitly which missing inputs would raise your confidence.
+
+Apply these **confidence caps** — each missing input lowers the ceiling, and the caps compound (take the lowest that applies):
+
+| Missing input | Confidence ceiling |
+|---|---|
+| State summary (input 7) | **70%** |
+| Lock file (input 8) | **80%** |
+| Provider or module inventory (inputs 4–5) | **80%** |
+| CI/CD pipeline details (input 9) | **85%** |
+| Any *Required* input (1–3) still missing | **Do not score — return to Step 0 and ask** |
+
+These are ceilings, not targets: other weaknesses in the evidence can push confidence lower still. If the user explicitly chose to *"proceed with what you have,"* keep the relevant cap and name the missing input in § D, rather than silently scoring as if it were present.
 
 ### D) Executive Summary
 
